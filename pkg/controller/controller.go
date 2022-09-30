@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -50,6 +51,7 @@ const controllerAgentName = "flagger"
 // Controller is managing the canary objects and schedules canary deployments
 type Controller struct {
 	kubeClient           kubernetes.Interface
+	dynamicClient        dynamic.Interface
 	flaggerClient        clientset.Interface
 	flaggerInformers     Informers
 	flaggerSynced        cache.InformerSynced
@@ -78,6 +80,7 @@ type Informers struct {
 
 func NewController(
 	kubeClient kubernetes.Interface,
+	dynamicClient dynamic.Interface,
 	flaggerClient clientset.Interface,
 	flaggerInformers Informers,
 	flaggerWindow time.Duration,
@@ -106,6 +109,7 @@ func NewController(
 
 	ctrl := &Controller{
 		kubeClient:           kubeClient,
+		dynamicClient:        dynamicClient,
 		flaggerClient:        flaggerClient,
 		flaggerInformers:     flaggerInformers,
 		flaggerSynced:        flaggerInformers.CanaryInformer.Informer().HasSynced,

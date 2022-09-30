@@ -1,0 +1,16 @@
+apiVersion: gateway.solo.io/v1
+kind: VirtualService
+metadata:
+  name: ecs
+  namespace: testing
+spec:
+  virtualHost:
+    domains:
+      - "app.example.com"
+    routes:
+      - matchers:
+          - prefix: /
+        delegateAction:
+          ref:
+            name: ecs
+            namespace: testing

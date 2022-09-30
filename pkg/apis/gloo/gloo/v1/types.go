@@ -18,6 +18,7 @@ type Upstream struct {
 
 type UpstreamSpec struct {
 	Kube                        *KubeUpstream         `json:"kube,omitempty"`
+	Cloudmap                    *CloudmapUpstream     `json:"cloudmap,omitempty"`
 	Labels                      map[string]string     `json:"labels,omitempty"`
 	SslConfig                   *UpstreamSslConfig    `json:"sslConfig,omitempty"`
 	CircuitBreakers             *CircuitBreakerConfig `json:"circuitBreakers,omitempty"`
@@ -26,6 +27,14 @@ type UpstreamSpec struct {
 	InitialStreamWindowSize     uint32                `json:"initialStreamWindowSize,omitempty"`
 	InitialConnectionWindowSize uint32                `json:"initialConnectionWindowSize,omitempty"`
 	HttpProxyHostname           string                `json:"httpProxyHostName,omitempty"`
+}
+
+type CloudmapUpstream struct {
+	ServiceName           string `json:"serviceName,omitempty"`
+	AwsAccountID          string `json:"awsAccountId,omitempty"`
+	CloudmapNamespaceName string `json:"cloudmapNamespaceName,omitempty"`
+	Port                  uint32 `json:"port,omitempty"`
+	AssumeRoleName        string `json:"assumeRoleName,omitempty"`
 }
 
 type KubeUpstream struct {

@@ -101,6 +101,7 @@ spec:
                         - DaemonSet
                         - Deployment
                         - Service
+                        - EcsService
                     name:
                       type: string
                 autoscalerRef:

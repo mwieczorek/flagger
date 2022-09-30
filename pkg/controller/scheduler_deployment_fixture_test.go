@@ -29,7 +29,10 @@ import (
 	hpav2 "k8s.io/api/autoscaling/v2beta2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
@@ -108,6 +111,9 @@ func newDeploymentFixture(c *flaggerv1.Canary) fixture {
 		newDeploymentTestAlertProviderSecret(),
 	)
 
+	scheme := runtime.NewScheme()
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(scheme, newUnstructured("group/version", "TheKind", "ns-foo", "name-foo"))
+
 	logger, _ := logger.NewLogger("debug")
 
 	// init controller
@@ -131,7 +137,7 @@ func newDeploymentFixture(c *flaggerv1.Canary) fixture {
 		KubeClient:    kubeClient,
 		FlaggerClient: flaggerClient,
 	}
-	canaryFactory := canary.NewFactory(kubeClient, flaggerClient, configTracker, []string{"app", "name"}, []string{""}, logger)
+	canaryFactory := canary.NewFactory(kubeClient, dynamicClient, flaggerClient, configTracker, []string{"app", "name"}, []string{""}, logger)
 
 	ctrl := &Controller{
 		kubeClient:       kubeClient,
@@ -233,6 +239,19 @@ func newDeploymentTestSecret() *corev1.Secret {
 			"apiKey":   []byte("test"),
 			"username": []byte("test"),
 			"password": []byte("test"),
+		},
+	}
+}
+
+func newUnstructured(apiVersion, kind, namespace, name string) *unstructured.Unstructured {
+	return &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": apiVersion,
+			"kind":       kind,
+			"metadata": map[string]interface{}{
+				"namespace": namespace,
+				"name":      name,
+			},
 		},
 	}
 }

@@ -21,10 +21,13 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	clientset "github.com/fluxcd/flagger/pkg/client/clientset/versioned"
+
+	"k8s.io/client-go/dynamic"
 )
 
 type Factory struct {
 	kubeClient         kubernetes.Interface
+	dynamicClient      dynamic.Interface
 	flaggerClient      clientset.Interface
 	logger             *zap.SugaredLogger
 	configTracker      Tracker
@@ -33,6 +36,7 @@ type Factory struct {
 }
 
 func NewFactory(kubeClient kubernetes.Interface,
+	dynamicClient dynamic.Interface,
 	flaggerClient clientset.Interface,
 	configTracker Tracker,
 	labels []string,
@@ -40,6 +44,7 @@ func NewFactory(kubeClient kubernetes.Interface,
 	logger *zap.SugaredLogger) *Factory {
 	return &Factory{
 		kubeClient:         kubeClient,
+		dynamicClient:      dynamicClient,
 		flaggerClient:      flaggerClient,
 		logger:             logger,
 		configTracker:      configTracker,
@@ -71,6 +76,15 @@ func (factory *Factory) Controller(kind string) Controller {
 		flaggerClient:      factory.flaggerClient,
 		includeLabelPrefix: factory.includeLabelPrefix,
 	}
+	ecsServiceCtrl := &EcsServiceController{
+		logger:             factory.logger,
+		kubeClient:         factory.kubeClient,
+		dynamicClient:      factory.dynamicClient,
+		flaggerClient:      factory.flaggerClient,
+		labels:             factory.labels,
+		configTracker:      &NopTracker{},
+		includeLabelPrefix: factory.includeLabelPrefix,
+	}
 
 	switch kind {
 	case "DaemonSet":
@@ -79,6 +93,8 @@ func (factory *Factory) Controller(kind string) Controller {
 		return deploymentCtrl
 	case "Service":
 		return serviceCtrl
+	case "EcsService":
+		return ecsServiceCtrl
 	default:
 		return deploymentCtrl
 	}

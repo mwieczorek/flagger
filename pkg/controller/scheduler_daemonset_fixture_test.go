@@ -24,7 +24,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/record"
@@ -80,6 +82,9 @@ func newDaemonSetFixture(c *flaggerv1.Canary) daemonSetFixture {
 		newDaemonSetTestAlertProviderSecret(),
 	)
 
+	scheme := runtime.NewScheme()
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(scheme, newUnstructured("group/version", "TheKind", "ns-foo", "name-foo"))
+
 	logger, _ := logger.NewLogger("debug")
 
 	// init controller
@@ -103,7 +108,7 @@ func newDaemonSetFixture(c *flaggerv1.Canary) daemonSetFixture {
 		KubeClient:    kubeClient,
 		FlaggerClient: flaggerClient,
 	}
-	canaryFactory := canary.NewFactory(kubeClient, flaggerClient, configTracker, []string{"app", "name"}, []string{""}, logger)
+	canaryFactory := canary.NewFactory(kubeClient, dynamicClient, flaggerClient, configTracker, []string{"app", "name"}, []string{""}, logger)
 
 	ctrl := &Controller{
 		kubeClient:       kubeClient,

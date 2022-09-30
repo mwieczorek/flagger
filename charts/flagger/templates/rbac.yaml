@@ -247,6 +247,30 @@ rules:
       - update
       - patch
       - delete
+  - apiGroups:
+      - servicediscovery.services.k8s.aws
+    resources:
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ecs.services.k8s.aws
+    resources:
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
   - nonResourceURLs:
       - /version
     verbs:

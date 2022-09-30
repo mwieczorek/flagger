@@ -21,3 +21,6 @@ Makefile.dev
 
 vendor
 coverage.txt
+
+.vscode
+_output

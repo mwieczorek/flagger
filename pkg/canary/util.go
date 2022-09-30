@@ -144,6 +144,10 @@ func int32p(i int32) *int32 {
 	return &i
 }
 
+func int64p(i int64) *int64 {
+	return &i
+}
+
 func int32Default(i *int32) int32 {
 	if i == nil {
 		return 1

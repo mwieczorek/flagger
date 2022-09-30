@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"go.uber.org/zap"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 
@@ -30,30 +31,35 @@ import (
 type Factory struct {
 	kubeConfig               *restclient.Config
 	kubeClient               kubernetes.Interface
+	dynamicClient            dynamic.Interface
 	meshClient               clientset.Interface
 	flaggerClient            clientset.Interface
 	ingressAnnotationsPrefix string
 	ingressClass             string
 	logger                   *zap.SugaredLogger
 	setOwnerRefs             bool
+	cloudmapAssumeRole       string
 }
 
-func NewFactory(kubeConfig *restclient.Config, kubeClient kubernetes.Interface,
+func NewFactory(kubeConfig *restclient.Config, kubeClient kubernetes.Interface, dynamicClient dynamic.Interface,
 	flaggerClient clientset.Interface,
 	ingressAnnotationsPrefix string,
 	ingressClass string,
 	logger *zap.SugaredLogger,
 	meshClient clientset.Interface,
-	setOwnerRefs bool) *Factory {
+	setOwnerRefs bool,
+	cloudmapAssumeRole string) *Factory {
 	return &Factory{
 		kubeConfig:               kubeConfig,
 		meshClient:               meshClient,
 		kubeClient:               kubeClient,
+		dynamicClient:            dynamicClient,
 		flaggerClient:            flaggerClient,
 		ingressAnnotationsPrefix: ingressAnnotationsPrefix,
 		ingressClass:             ingressClass,
 		logger:                   logger,
 		setOwnerRefs:             setOwnerRefs,
+		cloudmapAssumeRole:       cloudmapAssumeRole,
 	}
 }
 
@@ -61,6 +67,8 @@ func NewFactory(kubeConfig *restclient.Config, kubeClient kubernetes.Interface,
 func (factory *Factory) KubernetesRouter(kind string, labelSelector string, labelValue string, ports map[string]int32) KubernetesRouter {
 	switch kind {
 	case "Service":
+		return &KubernetesNoopRouter{}
+	case "EcsService":
 		return &KubernetesNoopRouter{}
 	default: // Daemonset or Deployment
 		return &KubernetesDefaultRouter{
@@ -152,11 +160,13 @@ func (factory *Factory) MeshRouter(provider string, labelSelector string) Interf
 		}
 	case strings.HasPrefix(provider, flaggerv1.GlooProvider):
 		return &GlooRouter{
-			logger:        factory.logger,
-			flaggerClient: factory.flaggerClient,
-			kubeClient:    factory.kubeClient,
-			glooClient:    factory.meshClient,
-			setOwnerRefs:  factory.setOwnerRefs,
+			logger:             factory.logger,
+			flaggerClient:      factory.flaggerClient,
+			kubeClient:         factory.kubeClient,
+			dynamicClient:      factory.dynamicClient,
+			glooClient:         factory.meshClient,
+			setOwnerRefs:       factory.setOwnerRefs,
+			cloudmapAssumeRole: factory.cloudmapAssumeRole,
 		}
 	case provider == flaggerv1.NGINXProvider:
 		return &IngressRouter{

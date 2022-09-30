@@ -30,6 +30,7 @@ import (
 	"go.uber.org/zap"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/tools/cache"
@@ -85,6 +86,7 @@ var (
 	kubeconfigServiceMesh    string
 	clusterName              string
 	noCrossNamespaceRefs     bool
+	cloudmapAssumeRole       string
 )
 
 func init() {
@@ -119,6 +121,7 @@ func init() {
 	flag.StringVar(&kubeconfigServiceMesh, "kubeconfig-service-mesh", "", "Path to a kubeconfig for the service mesh control plane cluster.")
 	flag.StringVar(&clusterName, "cluster-name", "", "Cluster name to be included in alert msgs.")
 	flag.BoolVar(&noCrossNamespaceRefs, "no-cross-namespace-refs", false, "When set to true, Flagger can only refer to resources in the same namespace.")
+	flag.StringVar(&cloudmapAssumeRole, "cloudmap-assume-role", "automation-gha-ci", "")
 }
 
 func main() {
@@ -157,6 +160,11 @@ func main() {
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		logger.Fatalf("Error building kubernetes clientset: %v", err)
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		logger.Fatalf("Error building dynamic clientset: %v", err)
 	}
 
 	flaggerClient, err := clientset.NewForConfig(cfg)
@@ -219,7 +227,7 @@ func main() {
 		setOwnerRefs = false
 	}
 
-	routerFactory := router.NewFactory(cfg, kubeClient, flaggerClient, ingressAnnotationsPrefix, ingressClass, logger, meshClient, setOwnerRefs)
+	routerFactory := router.NewFactory(cfg, kubeClient, dynamicClient, flaggerClient, ingressAnnotationsPrefix, ingressClass, logger, meshClient, setOwnerRefs, cloudmapAssumeRole)
 
 	var configTracker canary.Tracker
 	if enableConfigTracking {
@@ -234,10 +242,11 @@ func main() {
 
 	includeLabelPrefixArray := strings.Split(includeLabelPrefix, ",")
 
-	canaryFactory := canary.NewFactory(kubeClient, flaggerClient, configTracker, labels, includeLabelPrefixArray, logger)
+	canaryFactory := canary.NewFactory(kubeClient, dynamicClient, flaggerClient, configTracker, labels, includeLabelPrefixArray, logger)
 
 	c := controller.NewController(
 		kubeClient,
+		dynamicClient,
 		flaggerClient,
 		infos,
 		controlLoopInterval,

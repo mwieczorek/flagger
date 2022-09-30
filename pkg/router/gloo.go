@@ -20,16 +20,18 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
-
+	"github.com/aws/aws-sdk-go/aws/arn"
 	gatewayv1 "github.com/fluxcd/flagger/pkg/apis/gloo/gateway/v1"
 	gloov1 "github.com/fluxcd/flagger/pkg/apis/gloo/gloo/v1"
+	ecs "github.com/getndazn/mwieczorek-temp/dazn-gateway/ecs-controller/apis/v1alpha1"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
 	flaggerv1 "github.com/fluxcd/flagger/pkg/apis/flagger/v1beta1"
@@ -39,11 +41,13 @@ import (
 // GlooRouter is managing Gloo route tables
 type GlooRouter struct {
 	kubeClient         kubernetes.Interface
+	dynamicClient      dynamic.Interface
 	glooClient         clientset.Interface
 	flaggerClient      clientset.Interface
 	logger             *zap.SugaredLogger
 	includeLabelPrefix []string
 	setOwnerRefs       bool
+	cloudmapAssumeRole string
 }
 
 // Reconcile creates or updates the Gloo Edge route table
@@ -260,23 +264,30 @@ func (gr *GlooRouter) Finalize(_ *flaggerv1.Canary) error {
 }
 
 func (gr *GlooRouter) createFlaggerUpstream(canary *flaggerv1.Canary, upstreamName string, isCanary bool) error {
-	_, primaryName, canaryName := canary.GetServiceNames()
+	//_, primaryName, canaryName := canary.GetServiceNames()
 	upstreamClient := gr.glooClient.GlooV1().Upstreams(canary.Namespace)
-	svcName := primaryName
+	// svcName := primaryName
+	// if isCanary {
+	// 	svcName = canaryName
+	// }
+
+	ecsTargetName := canary.Spec.TargetRef.Name
+	ecsPrimaryName := fmt.Sprintf("%s-primary", canary.Spec.TargetRef.Name)
+	ecsSvcName := ecsPrimaryName
 	if isCanary {
-		svcName = canaryName
+		ecsSvcName = ecsTargetName
 	}
-	svc, err := gr.kubeClient.CoreV1().Services(canary.Namespace).Get(context.TODO(), svcName, metav1.GetOptions{})
+	ecssvc, err := gr.getEcsService(canary.Namespace, ecsSvcName)
 	if err != nil {
-		return fmt.Errorf("service %s.%s get query error: %w", svcName, canary.Namespace, err)
+		return err
 	}
+	if ecssvc.Status.ClusterARN == nil {
+		return fmt.Errorf("ecsservice do not have status populated yet")
+	}
+
 	_, err = upstreamClient.Get(context.TODO(), upstreamName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		glooUpstreamWithConfig, err := gr.getGlooConfigUpstream(canary)
-		if err != nil {
-			return err
-		}
-		canaryUs := gr.getGlooUpstreamKubeService(canary, svc, upstreamName, glooUpstreamWithConfig)
+		canaryUs := gr.getGlooUpstreamCloumapService(canary, upstreamName, ecssvc)
 		_, err = gr.glooClient.GlooV1().Upstreams(canary.Namespace).Create(context.TODO(), canaryUs, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("upstream %s.%s create query error: %w", upstreamName, canary.Namespace, err)
@@ -287,28 +298,36 @@ func (gr *GlooRouter) createFlaggerUpstream(canary *flaggerv1.Canary, upstreamNa
 	return nil
 }
 
-func (gr *GlooRouter) getGlooUpstreamKubeService(canary *flaggerv1.Canary, svc *corev1.Service, upstreamName string, glooUpstreamWithConfig *gloov1.Upstream) *gloov1.Upstream {
+func (gr *GlooRouter) getEcsServiceResource() dynamic.NamespaceableResourceInterface {
+	ecsServiceRes := schema.GroupVersionResource{Group: "ecs.services.k8s.aws", Version: "v1alpha1", Resource: "services"}
+	return gr.dynamicClient.Resource(ecsServiceRes)
+}
 
-	upstreamSpec := gloov1.UpstreamSpec{}
-	if glooUpstreamWithConfig != nil {
-		configSpec := glooUpstreamWithConfig.Spec
-		upstreamSpec = gloov1.UpstreamSpec{
-			Labels:                      configSpec.Labels,
-			SslConfig:                   configSpec.SslConfig,
-			CircuitBreakers:             configSpec.CircuitBreakers,
-			ConnectionConfig:            configSpec.ConnectionConfig,
-			UseHttp2:                    configSpec.UseHttp2,
-			InitialStreamWindowSize:     configSpec.InitialStreamWindowSize,
-			InitialConnectionWindowSize: configSpec.InitialConnectionWindowSize,
-			HttpProxyHostname:           configSpec.HttpProxyHostname,
-		}
-
+func (gr *GlooRouter) getEcsService(namespace, name string) (*ecs.Service, error) {
+	s, err := gr.getEcsServiceResource().Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
 	}
-	upstreamSpec.Kube = &gloov1.KubeUpstream{
-		ServiceName:      svc.GetName(),
-		ServiceNamespace: canary.Namespace,
-		ServicePort:      canary.Spec.Service.Port,
-		Selector:         svc.Spec.Selector,
+
+	unst := s.UnstructuredContent()
+	ecsservice := ecs.Service{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unst, &ecsservice)
+	if err != nil {
+		return nil, fmt.Errorf("ecssercice %s.%s convert from unstructured error: %w", name, namespace, err)
+	}
+
+	return &ecsservice, nil
+}
+
+func (gr *GlooRouter) getGlooUpstreamCloumapService(canary *flaggerv1.Canary, upstreamName string, ecssvc *ecs.Service) *gloov1.Upstream {
+	upstreamSpec := gloov1.UpstreamSpec{}
+	ecsArn, _ := arn.Parse(*ecssvc.Status.ClusterARN)
+	upstreamSpec.Cloudmap = &gloov1.CloudmapUpstream{
+		ServiceName:           *ecssvc.Spec.ServiceName,
+		AwsAccountID:          ecsArn.AccountID,
+		CloudmapNamespaceName: "mesh-gloo",
+		Port:                  8080,
+		AssumeRoleName:        gr.cloudmapAssumeRole,
 	}
 
 	upstreamLabels := includeLabelsByPrefix(upstreamSpec.Labels, gr.includeLabelPrefix)

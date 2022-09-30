@@ -1,0 +1,28 @@
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: ecs-poc
+  namespace: testing
+spec:
+  provider: gloo
+  targetRef:
+    apiVersion: ecs.services.k8s.aws/v1alpha1
+    kind: EcsService
+    name: awesome-service-cloudmap
+  service:
+    port: 8080
+    targetPort: 8080
+  analysis:
+    interval: 10s
+    threshold: 5
+    maxWeight: 50
+    stepWeight: 5
+    metrics:
+      - name: request-success-rate
+        thresholdRange:
+          min: 99
+        interval: 1m
+      - name: request-duration
+        thresholdRange:
+          max: 500
+        interval: 30s
